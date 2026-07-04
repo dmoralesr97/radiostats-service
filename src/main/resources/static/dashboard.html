@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>RadioStats Dashboard</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: system-ui, sans-serif;
+      background: #f5f5f5;
+      color: #222;
+      padding: 2rem;
+    }
+
+    header {
+      margin-bottom: 1.5rem;
+    }
+
+    header h1 { font-size: 1.75rem; }
+
+    #last-updated {
+      font-size: 0.85rem;
+      color: #666;
+      margin-top: 0.25rem;
+    }
+
+    #empty-state {
+      display: none;
+      padding: 2rem;
+      text-align: center;
+      color: #888;
+      font-size: 1.1rem;
+    }
+
+    #cards {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+      gap: 1rem;
+    }
+
+    .server-card {
+      background: #fff;
+      border-radius: 8px;
+      padding: 1.25rem;
+      border-left: 5px solid #ccc;
+      box-shadow: 0 1px 3px rgba(0,0,0,.1);
+    }
+
+    .server-card.state-active  { border-left-color: #22c55e; }
+    .server-card.state-down    { border-left-color: #ef4444; }
+    .server-card.state-unavailable { border-left-color: #a3a3a3; }
+
+    .card-name { font-weight: 600; font-size: 1rem; margin-bottom: 0.5rem; }
+
+    .badge {
+      display: inline-block;
+      font-size: 0.75rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      padding: 2px 8px;
+      border-radius: 12px;
+      margin-bottom: 0.5rem;
+    }
+
+    .state-active  .badge { background: #dcfce7; color: #15803d; }
+    .state-down    .badge { background: #fee2e2; color: #b91c1c; }
+    .state-unavailable .badge { background: #e5e5e5; color: #525252; }
+
+    .card-meta { font-size: 0.8rem; color: #555; margin-top: 0.4rem; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>RadioStats Dashboard</h1>
+    <p id="last-updated"></p>
+  </header>
+
+  <p id="empty-state">No streaming servers are configured.</p>
+  <div id="cards"></div>
+
+  <script>
+    const cardsEl = document.getElementById('cards');
+    const emptyEl = document.getElementById('empty-state');
+    const lastEl  = document.getElementById('last-updated');
+
+    function pad(n) { return String(n).padStart(2, '0'); }
+
+    function fmt(iso) {
+      const d = new Date(iso);
+      return `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+    }
+
+    function updateCards(data) {
+      cardsEl.innerHTML = '';
+      if (!data.servers || data.servers.length === 0) {
+        emptyEl.style.display = 'block';
+      } else {
+        emptyEl.style.display = 'none';
+        data.servers.forEach(s => {
+          const stateClass = 'state-' + s.state.toLowerCase();
+          const card = document.createElement('div');
+          card.className = 'server-card ' + stateClass;
+          card.innerHTML = `
+            <div class="card-name">${s.serverName}</div>
+            <span class="badge">${s.state}</span>
+            <div class="card-meta">Listeners: <strong>${s.listenerCount}</strong></div>
+            <div class="card-meta">Type: ${s.serverType}</div>
+            <div class="card-meta">Last checked: ${fmt(s.lastCheckedAt)}</div>
+          `;
+          cardsEl.appendChild(card);
+        });
+      }
+      lastEl.textContent = 'Last updated: ' + fmt(new Date().toISOString());
+    }
+
+    function loadDashboard() {
+      fetch('/api/v1/servers/dashboard')
+        .then(r => r.json())
+        .then(updateCards)
+        .catch(err => console.error('Dashboard fetch failed', err));
+    }
+
+    loadDashboard();
+    setInterval(loadDashboard, 60_000);
+  </script>
+</body>
+</html>

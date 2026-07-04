@@ -2,6 +2,8 @@ plugins {
     id 'java'
     id 'org.springframework.boot' version '4.1.0'
     id 'io.spring.dependency-management' version '1.1.7'
+    id 'org.openapi.generator' version '7.12.0'
+    id 'jacoco'
 }
 
 group = 'com.morales'
@@ -22,16 +24,102 @@ dependencies {
     implementation 'org.springframework.boot:spring-boot-h2console'
     implementation 'org.springframework.boot:spring-boot-starter-data-jpa'
     implementation 'org.springframework.boot:spring-boot-starter-webmvc'
+    implementation 'org.flywaydb:flyway-core'
+    implementation 'org.springframework.boot:spring-boot-flyway'
+    implementation 'io.swagger.core.v3:swagger-annotations:2.2.28'
+    implementation 'jakarta.validation:jakarta.validation-api'
     compileOnly 'org.projectlombok:lombok'
     runtimeOnly 'com.h2database:h2'
     annotationProcessor 'org.projectlombok:lombok'
+    testImplementation 'org.springframework.boot:spring-boot-starter-test'
+    testImplementation 'org.springframework.boot:spring-boot-restclient'
     testImplementation 'org.springframework.boot:spring-boot-starter-data-jpa-test'
     testImplementation 'org.springframework.boot:spring-boot-starter-webmvc-test'
+    testImplementation 'io.cucumber:cucumber-java:7.22.2'
+    testImplementation 'io.cucumber:cucumber-spring:7.22.2'
+    testImplementation 'io.cucumber:cucumber-junit-platform-engine:7.22.2'
+    testImplementation 'org.junit.platform:junit-platform-suite:1.11.4'
+    testImplementation 'com.tngtech.archunit:archunit-junit5:1.4.1'
+    testImplementation 'org.wiremock:wiremock-standalone:3.9.2'
+    testImplementation 'io.rest-assured:rest-assured:5.5.0'
     testCompileOnly 'org.projectlombok:lombok'
     testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
     testAnnotationProcessor 'org.projectlombok:lombok'
 }
 
+openApiGenerate {
+    generatorName = 'spring'
+    inputSpec = "${projectDir}/src/main/resources/openapi/radiostats-api.yaml"
+    outputDir = "${layout.buildDirectory.get()}/generated/openapi"
+    apiPackage = 'com.morales.radiostatsservice.generated.api'
+    modelPackage = 'com.morales.radiostatsservice.generated.model'
+    configOptions = [
+        useSpringBoot3      : 'true',
+        delegatePattern     : 'true',
+        useTags             : 'true',
+        openApiNullable     : 'false',
+        interfaceOnly       : 'false',
+        skipDefaultInterface: 'false'
+    ]
+}
+
+sourceSets {
+    main {
+        java {
+            srcDir "${layout.buildDirectory.get()}/generated/openapi/src/main/java"
+            exclude "org/openapitools/**"
+        }
+    }
+}
+
+compileJava.dependsOn tasks.openApiGenerate
+
+jacoco {
+    toolVersion = '0.8.13'
+}
+
+def jacocoExclusions = [
+    '**/generated/**',
+    '**/*Application.class',
+    '**/infrastructure/config/**'
+]
+
+jacocoTestReport {
+    reports {
+        html.required = true
+        xml.required = true
+    }
+    classDirectories.setFrom(files(classDirectories.files.collect {
+        fileTree(dir: it, exclude: jacocoExclusions)
+    }))
+}
+
+jacocoTestCoverageVerification {
+    classDirectories.setFrom(files(classDirectories.files.collect {
+        fileTree(dir: it, exclude: jacocoExclusions)
+    }))
+    violationRules {
+        rule {
+            limit {
+                counter = 'INSTRUCTION'
+                value = 'COVEREDRATIO'
+                minimum = 0.80
+            }
+        }
+        rule {
+            element = 'CLASS'
+            limit {
+                counter = 'LINE'
+                value = 'COVEREDRATIO'
+                minimum = 0.80
+            }
+        }
+    }
+}
+
+check.dependsOn jacocoTestCoverageVerification
+
 tasks.named('test') {
     useJUnitPlatform()
+    finalizedBy jacocoTestReport
 }

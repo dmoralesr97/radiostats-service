@@ -1,0 +1,123 @@
+{
+  "proyecto": "radiostats-service",
+  "version": "1.0.0",
+  "fecha": "2026-07-04",
+  "commit": "c515d0c",
+  "spec": "specs/001-unified-server-dashboard/spec.md",
+
+  "tests": {
+    "comando": "./gradlew test jacocoTestReport",
+    "passed": 44,
+    "total": 44,
+    "failed": 0,
+    "skipped": 0,
+    "coverage": 90.45,
+    "coverage_fuente": "build/reports/jacoco/test/jacocoTestReport.xml",
+    "nota_cobertura": "Instrucciones: 701 cubiertas / 775 totales = 90.45% — supera umbral ≥80% de constitution.md"
+  },
+
+  "security": {
+    "fuente": "Semgrep CLI 1.168.0 (uvx semgrep; rulesets p/java, p/owasp-top-ten, p/secrets) + grep de secretos en src/main + revisión manual de controladores",
+    "critical": 0,
+    "high": 2,
+    "secrets": 0,
+    "hallazgos": [
+      {
+        "severidad": "HIGH",
+        "regla": "missing-spring-security-unauthenticated-endpoints",
+        "archivo": "build.gradle",
+        "linea": 1,
+        "descripcion": "Spring Security no está incluido. Los tres endpoints REST (GET /api/v1/servers/dashboard, GET /api/v1/servers, POST /api/v1/servers) son accesibles sin autenticación. El spec asume 'existing application authentication' pero no existe SecurityFilterChain ni @EnableWebSecurity."
+      },
+      {
+        "severidad": "HIGH",
+        "regla": "ssrf-user-controlled-host-and-port",
+        "archivo": "src/main/java/com/morales/radiostatsservice/adapter/out/polling/IcecastPollingAdapter.java",
+        "linea": 26,
+        "descripcion": "El host y puerto del servidor (obtenidos de BD, poblada vía POST /servers sin autenticación) se concatenan en URLs para peticiones HTTP salientes — vector SSRF. Mismo patrón en ShoutcastPollingAdapter.java:41 y :63."
+      },
+      {
+        "severidad": "MEDIUM",
+        "regla": "h2-console-exposed-without-spring-security",
+        "archivo": "src/main/resources/application.yaml",
+        "linea": 1,
+        "descripcion": "spring-boot-h2console está presente y expone /h2-console sin Spring Security. Cualquier usuario puede ejecutar SQL arbitrario."
+      },
+      {
+        "severidad": "MEDIUM",
+        "regla": "cleartext-http-outbound-polling",
+        "archivo": "src/main/java/com/morales/radiostatsservice/adapter/out/polling/IcecastPollingAdapter.java",
+        "linea": 26,
+        "descripcion": "URLs de polling construidas con 'http://' — tráfico saliente en texto claro. Mismo patrón en ShoutcastPollingAdapter.java:41 y :63."
+      }
+    ],
+    "endpoints_sin_auth": [
+      { "metodo": "GET",  "path": "/api/v1/servers/dashboard", "archivo": "adapter/in/rest/DashboardController.java", "linea": 38 },
+      { "metodo": "GET",  "path": "/api/v1/servers",           "archivo": "adapter/in/rest/DashboardController.java", "linea": 59 },
+      { "metodo": "POST", "path": "/api/v1/servers",           "archivo": "adapter/in/rest/DashboardController.java", "linea": 43 }
+    ]
+  },
+
+  "criteria": [
+    {
+      "id": "FR-001",
+      "fuente": "spec.md · FR-001 (status + listener count, pantalla única, hasta 10 servidores)",
+      "status": "cumple",
+      "evidencia": "DashboardControllerIntegrationTest:getServerDashboard_returnsHttpOkWithDashboardResponse PASA — verifica $.servers[0].state, $.servers[0].listenerCount, $.totalServers en HTTP 200. ServerDashboardServiceUnitTest:execute_returnsPolledStatusForEachServer PASA."
+    },
+    {
+      "id": "FR-002",
+      "fuente": "spec.md · FR-002 (cap en 10 por configOrder cuando >10 configurados)",
+      "status": "cumple",
+      "evidencia": "StreamingServerJpaAdapterIntegrationTest:findFirstTenByConfigOrder_returnsTenRowsWhenMoreExist PASA — assertThat(result).hasSize(10) con 15 filas en BD (semilla V3). CucumberRunnerTest:unified_status_view 'caps at 10' — UnifiedStatusViewSteps inserta 12 filas vía JdbcTemplate, llama al dashboard y verifica totalServers==10."
+    },
+    {
+      "id": "FR-003",
+      "fuente": "spec.md · FR-003 (indicador visual distinto DOWN vs ACTIVE)",
+      "status": "cumple",
+      "evidencia": "DashboardControllerIntegrationTest:getServerDashboard_allThreeStatesMapped PASA — $.servers[0].state='ACTIVE', $.servers[1].state='DOWN', $.servers[2].state='UNAVAILABLE' como valores distintos. IcecastPollingAdapterUnitTest:poll_returnsDown_* y poll_returnsActiveWithListenerSum_* PASAN."
+    },
+    {
+      "id": "FR-004",
+      "fuente": "spec.md · FR-004 (indicador UNAVAILABLE separado de DOWN para timeout)",
+      "status": "cumple",
+      "evidencia": "IcecastPollingAdapterUnitTest:poll_returnsUnavailable_whenRequestTimesOut PASA — WireMock delay 11s, ServerState.UNAVAILABLE. ShoutcastPollingAdapterUnitTest:poll_returnsUnavailable_whenConnectionTimesOut PASA."
+    },
+    {
+      "id": "FR-005",
+      "fuente": "spec.md · FR-005 (auto-refresh 60s sin recarga de página)",
+      "status": "cumple",
+      "evidencia": "ServerDashboardService:execute() sondea datos frescos en cada llamada (sin caché, sin estado). CucumberRunnerTest:auto_refresh 'idempotent' — AutoRefreshSteps verifica dos llamadas consecutivas devuelven HTTP 200 con mismo esquema servers/totalServers/refreshedAt."
+    },
+    {
+      "id": "FR-006",
+      "fuente": "spec.md · FR-006 (datos previos visibles durante refresh en progreso)",
+      "status": "cumple",
+      "evidencia": "DashboardPerformanceTest:dashboardRespondsWithinFiveSecondsForUpToTenServers PASA — respuesta en <5 segundos para 10 servidores. CucumberRunnerTest:auto_refresh 'data available during in-flight refresh' PASA — API responde sincrónicamente sin bloquear."
+    },
+    {
+      "id": "FR-007",
+      "fuente": "spec.md · FR-007 (empty state con guía cuando no hay servidores configurados)",
+      "status": "cumple",
+      "evidencia": "ServerDashboardServiceUnitTest:execute_returnsEmptyListWhenNoServers PASA. UnifiedStatusViewSteps:thereAreNoConfiguredStreamingServers() ejecuta DELETE en BD real; theResponseContainsServerStatusEntries(0) parsea JSON y verifica root.get('totalServers').asInt()==0 y root.get('servers').size()==0. DashboardControllerIntegrationTest verifica jsonPath('$.servers', hasSize(0)) y jsonPath('$.totalServers', is(0)) para lista vacía."
+    },
+    {
+      "id": "FR-008",
+      "fuente": "spec.md · FR-008 (actualizar estado en ≤70 segundos de cambio de estado)",
+      "status": "cumple",
+      "evidencia": "CucumberRunnerTest:auto_refresh 'state changes are visible' — AutoRefreshSteps:aServerIsInitiallyActive() inserta servidor apuntando a WireMock (ICECAST activo); theServerStateChangesTo('DOWN') cambia WireMock a respuesta sin source; theResponseReflectsTheNewState('DOWN') verifica assertThat(body).contains('\"state\":\"DOWN\"'). Sin caché en el servicio — el cambio se refleja en el siguiente request."
+    },
+    {
+      "id": "EDGE-timeout",
+      "fuente": "spec.md · Edge Case — servidor sin respuesta en tiempo razonable",
+      "status": "cumple",
+      "evidencia": "IcecastPollingAdapterUnitTest:poll_returnsUnavailable_whenRequestTimesOut + ShoutcastPollingAdapterUnitTest:poll_returnsUnavailable_whenConnectionTimesOut PASAN — WireMock delay 11s, verifica UNAVAILABLE y elapsed < 11s."
+    },
+    {
+      "id": "EDGE-all-down",
+      "fuente": "spec.md · Edge Case — todos los servidores caídos simultáneamente",
+      "status": "cumple",
+      "evidencia": "Arquitectura stateless: ServerDashboardService evalúa cada servidor independientemente. DashboardControllerIntegrationTest:getServerDashboard_allThreeStatesMapped cubre distinción por servidor. El diseño garantiza el comportamiento por construcción."
+    }
+  ]
+}

@@ -1,0 +1,285 @@
+openapi: "3.1.0"
+info:
+  title: Radiostats Service API
+  description: |
+    REST API for the Radiostats Service. Provides real-time status and listener
+    counts for configured streaming servers (Icecast / Shoutcast).
+  version: "1.0.0"
+  contact:
+    name: David Morales
+servers:
+  - url: /api/v1
+    description: Current version
+
+tags:
+  - name: Dashboard
+    description: Unified server status dashboard operations
+
+paths:
+  /servers/dashboard:
+    get:
+      tags:
+        - Dashboard
+      summary: Get unified dashboard of all configured streaming servers
+      description: |
+        Returns the real-time status and listener count of up to 10 configured
+        streaming servers, ordered by configuration sequence. Server data is polled
+        live on each request; no cached state is returned.
+      operationId: getServerDashboard
+      responses:
+        "200":
+          description: Dashboard data retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DashboardResponse"
+              example:
+                servers:
+                  - serverId: "550e8400-e29b-41d4-a716-446655440000"
+                    serverName: "Main Stream"
+                    serverType: "ICECAST"
+                    state: "ACTIVE"
+                    listenerCount: 128
+                    lastCheckedAt: "2026-07-04T10:00:00Z"
+                  - serverId: "550e8400-e29b-41d4-a716-446655440001"
+                    serverName: "Backup Stream"
+                    serverType: "SHOUTCAST_V2"
+                    state: "DOWN"
+                    listenerCount: 0
+                    lastCheckedAt: "2026-07-04T10:00:00Z"
+                totalServers: 2
+                refreshedAt: "2026-07-04T10:00:00Z"
+        "500":
+          description: Internal server error — polling infrastructure failure
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /servers:
+    get:
+      tags:
+        - Dashboard
+      summary: List all configured streaming servers
+      description: |
+        Returns all configured streaming servers in configuration order.
+        Does not include real-time status (use /servers/dashboard for that).
+      operationId: listServers
+      responses:
+        "200":
+          description: List of configured servers
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ServerListResponse"
+        "500":
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+    post:
+      tags:
+        - Dashboard
+      summary: Register a new streaming server
+      description: |
+        Adds a new streaming server to the configuration. The server is assigned
+        the next available configuration order position.
+      operationId: createServer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateServerRequest"
+      responses:
+        "201":
+          description: Server registered successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ServerDto"
+        "400":
+          description: Invalid request payload
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+components:
+  schemas:
+
+    DashboardResponse:
+      type: object
+      required:
+        - servers
+        - totalServers
+        - refreshedAt
+      properties:
+        servers:
+          type: array
+          description: Up to 10 server status entries ordered by configuration sequence
+          maxItems: 10
+          items:
+            $ref: "#/components/schemas/ServerStatusDto"
+        totalServers:
+          type: integer
+          description: Number of servers returned (≤ 10)
+          example: 2
+        refreshedAt:
+          type: string
+          format: date-time
+          description: UTC timestamp when this dashboard data was collected
+
+    ServerStatusDto:
+      type: object
+      required:
+        - serverId
+        - serverName
+        - serverType
+        - state
+        - listenerCount
+        - lastCheckedAt
+      properties:
+        serverId:
+          type: string
+          format: uuid
+          description: Unique identifier of the streaming server configuration
+        serverName:
+          type: string
+          description: Human-readable name of the server
+          example: "Main Stream"
+        serverType:
+          $ref: "#/components/schemas/ServerType"
+        state:
+          $ref: "#/components/schemas/ServerState"
+        listenerCount:
+          type: integer
+          minimum: 0
+          description: Current number of listeners; 0 when DOWN or UNAVAILABLE
+          example: 128
+        lastCheckedAt:
+          type: string
+          format: date-time
+          description: UTC timestamp of when this server was polled
+
+    ServerDto:
+      type: object
+      required:
+        - id
+        - name
+        - serverType
+        - host
+        - port
+        - configOrder
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+          maxLength: 255
+        serverType:
+          $ref: "#/components/schemas/ServerType"
+        host:
+          type: string
+        port:
+          type: integer
+          minimum: 1
+          maximum: 65535
+        configOrder:
+          type: integer
+
+    ServerListResponse:
+      type: object
+      required:
+        - servers
+      properties:
+        servers:
+          type: array
+          items:
+            $ref: "#/components/schemas/ServerDto"
+
+    CreateServerRequest:
+      type: object
+      required:
+        - name
+        - serverType
+        - host
+        - port
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 255
+          description: Human-readable name for this server
+          example: "Main Icecast Stream"
+        serverType:
+          $ref: "#/components/schemas/ServerType"
+        host:
+          type: string
+          minLength: 1
+          description: Hostname or IP address of the streaming server
+          example: "stream.example.com"
+        port:
+          type: integer
+          minimum: 1
+          maximum: 65535
+          description: TCP port on which the streaming server listens
+          example: 8000
+        credentialsRef:
+          type: string
+          nullable: true
+          description: |
+            Optional reference to an environment variable holding credentials for
+            authenticated polling. Leave null for unauthenticated public endpoints.
+          example: "STREAM_SERVER_1_CREDS"
+
+    ServerType:
+      type: string
+      description: Type of streaming server software
+      enum:
+        - ICECAST
+        - SHOUTCAST_V2
+        - SHOUTCAST_V1
+      example: ICECAST
+
+    ServerState:
+      type: string
+      description: |
+        Real-time state of the server:
+        - ACTIVE: responding and streaming
+        - DOWN: reachable but not streaming
+        - UNAVAILABLE: connection timed out or response unparseable
+      enum:
+        - ACTIVE
+        - DOWN
+        - UNAVAILABLE
+      example: ACTIVE
+
+    ErrorResponse:
+      type: object
+      required:
+        - status
+        - message
+        - timestamp
+      properties:
+        status:
+          type: integer
+          description: HTTP status code
+          example: 500
+        message:
+          type: string
+          description: Human-readable error message
+          example: "Failed to poll one or more streaming servers"
+        timestamp:
+          type: string
+          format: date-time
+          description: UTC timestamp of the error
